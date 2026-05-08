@@ -22,7 +22,6 @@ const THAI_MONTHS_SHORT: Record<number, string> = {
 };
 
 export function parseGvizResponse(rawText: string): ParsedSheet {
-  // Strip the Google Visualization API wrapper
   const jsonStart = rawText.indexOf("{");
   const jsonEnd = rawText.lastIndexOf("}");
   if (jsonStart === -1 || jsonEnd === -1) {
@@ -36,7 +35,6 @@ export function parseGvizResponse(rawText: string): ParsedSheet {
   const table = data.table;
   if (!table) throw new Error("No table data found");
 
-  // Parse columns
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: ColumnDef[] = (table.cols || []).map((col: any, idx: number) => ({
     id: col.id || `col_${idx}`,
@@ -44,10 +42,8 @@ export function parseGvizResponse(rawText: string): ParsedSheet {
     type: col.type || "string",
   }));
 
-  // Filter out empty columns
   const validColumns = columns.filter((c) => c.label && c.label.trim() !== "");
 
-  // Parse rows
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows: SaleRecord[] = (table.rows || []).map((row: any) => {
     const record: SaleRecord = {};
@@ -55,11 +51,15 @@ export function parseGvizResponse(rawText: string): ParsedSheet {
     (row.c || []).forEach((cell: any, idx: number) => {
       const col = columns[idx];
       if (!col || !col.label || col.label.trim() === "") return;
-      record[col.label] = cell?.v ?? null;
+      // gviz returns Date as {v: "Date(2025,0,15)"} — prefer formatted value
+      if (col.type === "date" && cell?.f) {
+        record[col.label] = cell.f;
+      } else {
+        record[col.label] = cell?.v ?? null;
+      }
     });
     return record;
   }).filter((row: SaleRecord) => {
-    // Skip completely empty rows
     return Object.values(row).some((v) => v !== null && v !== "");
   });
 
@@ -67,19 +67,18 @@ export function parseGvizResponse(rawText: string): ParsedSheet {
 }
 
 function detectSalesColumn(columns: ColumnDef[]): string | null {
-  const salesKeywords = ["ยอดขาย", "ยอด", "จำนวนเงิน", "มูลค่า", "sales", "amount", "value", "total", "เงิน", "บาท"];
+  const salesKeywords = ["ยอดขาย", "ยอด", "จำนวนเงิน", "มูลค่า", "sales", "amount", "value", "total", "เงิน", "บาท", "ราคา"];
   for (const kw of salesKeywords) {
     const col = columns.find((c) => c.label.toLowerCase().includes(kw.toLowerCase()));
     if (col) return col.label;
   }
-  // Fallback: first number column
   const numCol = columns.find((c) => c.type === "number");
   if (numCol) return numCol.label;
   return null;
 }
 
 function detectCustomerColumn(columns: ColumnDef[]): string | null {
-  const customerKeywords = ["ลูกค้า", "ชื่อ", "ผู้กู้", "customer", "name", "client", "สาขา", "ทีม", "พนักงาน", "เอเจนต์"];
+  const customerKeywords = ["ลูกค้า", "ชื่อ", "ผู้กู้", "customer", "name", "client", "สาขา", "ทีม", "พนักงาน", "เอเจนต์", "ตัวแทน"];
   for (const kw of customerKeywords) {
     const col = columns.find((c) => c.label.toLowerCase().includes(kw.toLowerCase()));
     if (col) return col.label;
@@ -96,18 +95,16 @@ function detectMonthColumn(columns: ColumnDef[]): string | null {
   return null;
 }
 
-function parseMonthValue(value: string | number | null): number {
+export function parseMonthValue(value: string | number | null): number {
   if (!value) return 0;
   const str = String(value).trim().toLowerCase();
 
-  // Direct match
   for (const [key, num] of Object.entries(THAI_MONTHS)) {
     if (str === key.toLowerCase() || str.includes(key.toLowerCase())) {
       return num;
     }
   }
 
-  // Numeric
   const num = parseInt(str, 10);
   if (!isNaN(num) && num >= 1 && num <= 12) return num;
 
@@ -115,11 +112,14 @@ function parseMonthValue(value: string | number | null): number {
   const dateMatch = str.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (dateMatch) return parseInt(dateMatch[2], 10);
 
-  // Date string: DD/MM/YYYY or MM/YYYY
+  // Date string: DD/MM/YYYY or MM/DD/YYYY
   const slashMatch = str.match(/(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?/);
   if (slashMatch) {
     const m = parseInt(slashMatch[2], 10);
     if (m >= 1 && m <= 12) return m;
+    // try first segment as month
+    const m2 = parseInt(slashMatch[1], 10);
+    if (m2 >= 1 && m2 <= 12) return m2;
   }
 
   return 0;
@@ -136,11 +136,17 @@ export function buildDashboardStats(sheet: ParsedSheet): DashboardStats {
   const monthlyMap: Record<number, { total: number; count: number; label: string }> = {};
   const customerMap: Record<string, { total: number; count: number; months: Set<string> }> = {};
 
-  for (const row of rows) {
-    const salesVal = salesCol ? parseFloat(String(row[salesCol] ?? 0).replace(/,/g, "")) || 0 : 0;
-    const customer = customerCol ? String(row[customerCol] ?? "ไม่ระบุ").trim() : "ไม่ระบุ";
+  // Enrich each row with a hidden _monthIndex for reliable month filtering
+  const enrichedRows: SaleRecord[] = rows.map((row) => {
     const monthRaw = monthCol ? row[monthCol] : null;
     const monthNum = parseMonthValue(monthRaw);
+    return { ...row, _monthIndex: monthNum };
+  });
+
+  for (const row of enrichedRows) {
+    const salesVal = salesCol ? parseFloat(String(row[salesCol] ?? 0).replace(/,/g, "")) || 0 : 0;
+    const customer = customerCol ? String(row[customerCol] ?? "ไม่ระบุ").trim() : "ไม่ระบุ";
+    const monthNum = typeof row._monthIndex === "number" ? row._monthIndex : 0;
     const monthLabel = THAI_MONTHS_SHORT[monthNum] || (monthNum > 0 ? `เดือน ${monthNum}` : "ไม่ระบุ");
 
     totalSales += salesVal;
@@ -152,7 +158,6 @@ export function buildDashboardStats(sheet: ParsedSheet): DashboardStats {
       monthlyMap[monthNum].total += salesVal;
       monthlyMap[monthNum].count += 1;
     } else {
-      // Put in "ไม่ระบุ" bucket at index 0
       if (!monthlyMap[0]) {
         monthlyMap[0] = { total: 0, count: 0, label: "ไม่ระบุ" };
       }
@@ -195,6 +200,7 @@ export function buildDashboardStats(sheet: ParsedSheet): DashboardStats {
   const topMonth = topMonthEntry?.month ?? "-";
   const topCustomer = customerSales[0]?.customer ?? "-";
   const avgPerRecord = rows.length > 0 ? totalSales / rows.length : 0;
+  const uniqueCustomers = Object.keys(customerMap).length;
 
   return {
     totalSales,
@@ -202,9 +208,10 @@ export function buildDashboardStats(sheet: ParsedSheet): DashboardStats {
     avgPerRecord,
     topMonth,
     topCustomer,
+    uniqueCustomers,
     monthlySales,
     customerSales,
-    allRecords: rows,
+    allRecords: enrichedRows,
     columns,
   };
 }

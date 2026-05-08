@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { parseGvizResponse, buildDashboardStats } from "@/lib/parseGviz";
 import type { DashboardStats } from "@/types";
 
-const SHEET_ID = "1QWfJKOLL94rz_XQJjfC4wHdrhyuxkakno9pR-i_HqmE";
-const SHEET_NAME = "Sheet1";
+const SHEET_ID = "1vFEgLYmNMmAIytY42pZ_ALLojM7_NxUN";
+const SHEET_NAME = "รายการขาย";
 const REFRESH_INTERVAL = 30_000; // 30 seconds
 
 export interface SheetState {
@@ -13,6 +13,7 @@ export interface SheetState {
   loading: boolean;
   error: string | null;
   lastUpdated: Date | null;
+  countdown: number;
   refresh: () => void;
 }
 
@@ -21,7 +22,17 @@ export function useGoogleSheet(): SheetState {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [countdown, setCountdown] = useState(30);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const resetCountdown = useCallback(() => {
+    setCountdown(30);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    countdownRef.current = setInterval(() => {
+      setCountdown((c) => (c <= 1 ? 30 : c - 1));
+    }, 1_000);
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -47,20 +58,22 @@ export function useGoogleSheet(): SheetState {
       const stats = buildDashboardStats(sheet);
       setData(stats);
       setLastUpdated(new Date());
+      resetCountdown();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ไม่สามารถดึงข้อมูลได้");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [resetCountdown]);
 
   useEffect(() => {
     void fetchData();
     intervalRef.current = setInterval(() => void fetchData(), REFRESH_INTERVAL);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, [fetchData]);
 
-  return { data, loading, error, lastUpdated, refresh: fetchData };
+  return { data, loading, error, lastUpdated, countdown, refresh: fetchData };
 }

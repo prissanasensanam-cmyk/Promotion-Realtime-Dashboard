@@ -33,6 +33,7 @@ export interface DashboardStats {
   avgPerRecord: number;
   topMonth: string;
   topCustomer: string;
+  uniqueCustomers: number;
   monthlySales: MonthlySales[];
   customerSales: CustomerSales[];
   allRecords: SaleRecord[];
