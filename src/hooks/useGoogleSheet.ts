@@ -5,7 +5,7 @@ import { parseGvizResponse, buildDashboardStats } from "@/lib/parseGviz";
 import type { DashboardStats } from "@/types";
 
 const SHEET_ID = "1QWfJKOLL94rz_XQJjfC4wHdrhyuxkakno9pR-i_HqmE";
-const SHEET_NAME = "ชีต1";
+const SHEET_NAME = "sheet1";
 const REFRESH_INTERVAL = 30_000; // 30 seconds
 
 export interface SheetState {
