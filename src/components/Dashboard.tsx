@@ -78,12 +78,28 @@ export function Dashboard() {
   }
 
   if (error) {
+    const lines = error.split("\n");
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="glass-light rounded-2xl p-8 max-w-md text-center">
+        <div className="glass-light rounded-2xl p-8 max-w-lg w-full text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-white font-semibold text-lg mb-2">ไม่สามารถโหลดข้อมูลได้</h2>
-          <p className="text-slate-400 text-sm mb-6">{error}</p>
+          <h2 className="text-white font-semibold text-lg mb-3">ไม่สามารถโหลดข้อมูลได้</h2>
+          <div className="text-left bg-black/30 rounded-xl p-4 mb-6 space-y-1">
+            {lines.map((line, i) => (
+              <p key={i} className={i === 0 ? "text-red-300 text-sm font-medium" : "text-slate-400 text-sm"}>
+                {line}
+              </p>
+            ))}
+          </div>
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-6 text-left">
+            <p className="text-amber-400 text-xs font-semibold mb-1">วิธีแก้ไข:</p>
+            <ol className="text-slate-300 text-xs space-y-1 list-decimal list-inside">
+              <li>เปิด Google Sheet ของคุณ</li>
+              <li>คลิก <span className="text-white font-medium">Share</span> (มุมขวาบน)</li>
+              <li>เลือก <span className="text-white font-medium">Anyone with the link</span></li>
+              <li>ตั้งเป็น <span className="text-white font-medium">Viewer</span> แล้วบันทึก</li>
+            </ol>
+          </div>
           <button
             onClick={refresh}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
